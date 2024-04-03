@@ -12,8 +12,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# Todo
-# 1. 데이터 전처리 검토: 이상치 제거 (Min - Max 값 plt로 확인, Cpu 사용률, 메모리 사용률 등)
+def show_preprocessed_data(data):
+    # CPU 사용률의 최대 최소 값을 그래프화
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    plt.hist(data['CPU usage [%]'], bins=50, color='skyblue')
+    plt.title('CPU Usage [%] Distribution')
+    plt.xlabel('CPU Usage [%]')
+    plt.ylabel('Frequency')
+
+    # 메모리 사용률의 최대 최소 값을 그래프화
+    plt.subplot(1, 2, 2)
+    plt.hist(data['Memory usage [KB]'], bins=50, color='orange')
+    plt.title('Memory Usage [KB] Distribution')
+    plt.xlabel('Memory Usage [KB]')
+    plt.ylabel('Frequency')
+
+    plt.tight_layout()
+    plt.show()
+
 
 def remove_outliers(data, threshold=3):
     for col in data.columns:
@@ -47,7 +64,7 @@ def pre_processing(file_path, train_size=0.8):
     # 특성 스케일링
     features_to_scale = ['CPU usage [%]', 'Memory usage [KB]']
     data = remove_outliers_q(data, features_to_scale)
-    data = apply_scaling(data, features_to_scale)
+    #data = apply_scaling(data, features_to_scale)
     #print(data)
 
     # 시간 관련 특성 추가
@@ -82,26 +99,43 @@ def create_edges(data):
     return edge_index, y
 
 
+def create_dynamic_edges(data, window_size=5):
+    num_nodes = len(data)
+    edges = []
+
+    # 각 노드에 대해 window_size만큼 이전 노드와 연결
+    for current_node in range(window_size, num_nodes):
+        for prev_node in range(1, window_size + 1):
+            src = current_node - prev_node  # Source node
+            dest = current_node  # Destination node
+            edges.append((src, dest))
+
+    edge_index = torch.tensor(np.array(edges).T, dtype=torch.long)
+    y = torch.tensor(data['CPU usage [%]'].values, dtype=torch.float)
+    return edge_index, y
+
+
 ### Pre Processing
 
 file_path = '../output/rnd/2013-7/1.csv'
 
 train_data, test_data = pre_processing(file_path, train_size=0.8)
+show_preprocessed_data(train_data)
+show_preprocessed_data(test_data)
 
 
 ### Node & Edge
 
 # 노드와 에지 생성
 train_x = create_nodes(train_data)
-train_edge_index, train_y = create_edges(train_data)
+train_edge_index, train_y = create_dynamic_edges(train_data)
 
 test_x = create_nodes(test_data)
-test_edge_index, test_y = create_edges(test_data)
+test_edge_index, test_y = create_dynamic_edges(test_data)
 
 # Data 객체 생성
 graph_data = Data(x=train_x, edge_index=train_edge_index, y=train_y)
-
-print(graph_data.y.unsqueeze(1))
+# print(graph_data.y.unsqueeze(1))
 
 
 ### GNN Architecture
@@ -109,26 +143,34 @@ print(graph_data.y.unsqueeze(1))
 class GNN(torch.nn.Module):
     def __init__(self, num_node_features, num_classes):
         super(GNN, self).__init__()
-        self.conv1 = GCNConv(num_node_features, 32)
-        self.bn1 = torch.nn.BatchNorm1d(32)
-        self.conv2 = GCNConv(32, 16)
-        self.bn2 = torch.nn.BatchNorm1d(16)
-        self.conv3 = GCNConv(16, num_classes)
+        self.conv1 = GCNConv(num_node_features, 64)
+        #self.bn1 = torch.nn.BatchNorm1d(64)
+        self.conv2 = GCNConv(64, 32)
+        #self.bn2 = torch.nn.BatchNorm1d(32)
+        self.conv3 = GCNConv(32, 16) 
+        #self.bn3 = torch.nn.BatchNorm1d(16)
+        self.fc = torch.nn.Linear(16, num_classes)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
 
         # 그래프 컨볼루션 레이어
         x = self.conv1(x, edge_index)
-        x = F.relu(self.bn1(x))
-        x = F.dropout(x, p=0.2, training=self.training)
+        #x = F.relu(self.bn1(x))
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
 
         x = self.conv2(x, edge_index)
-        x = F.relu(self.bn2(x))
-        x = F.dropout(x, p=0.2, training=self.training)
+        #x = F.relu(self.bn2(x))
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
 
         x = self.conv3(x, edge_index)
+        #x = F.relu(self.bn3(x))
         x = F.relu(x)
+
+        x = self.fc(x)
+        #x = torch.sigmoid(x)
         
         return x
 
@@ -136,16 +178,19 @@ class GNN(torch.nn.Module):
 # 모델, 손실 함수, 옵티마이저 초기화
 model = GNN(num_node_features=6, num_classes=1)  # 회귀 문제의 경우 num_classes를 1로 설정합니다.
 loss_func = torch.nn.MSELoss()  # 회귀 문제의 손실 함수
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
 
 
 # 학습 루프
-for epoch in range(200):  # 에포크 수는 실험을 통해 결정됩니다.
+for epoch in range(100):
     optimizer.zero_grad()  # 기울기 초기화
     out = model(graph_data)  # 모델로부터 예측
+    # print(out)
     loss = loss_func(out, graph_data.y.unsqueeze(1))  # 손실 계산
     loss.backward()  # 역전파
     optimizer.step()  # 최적화 단계
+    scheduler.step()  # 학습률 스케줄러
 
     if epoch % 10 == 0:
         print(f'Epoch {epoch}, Loss: {loss.item()}')
@@ -160,6 +205,8 @@ with torch.no_grad():
     predictions = model(test_data)
     test_loss = loss_func(predictions, test_data.y)
 
+print("최소 예측값:", predictions.min().item())
+print("최대 예측값:", predictions.max().item())
 print(f'Test Loss: {test_loss.item()}')
 
 
