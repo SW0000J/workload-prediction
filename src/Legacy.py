@@ -117,8 +117,8 @@ def create_dynamic_edges(data, window_size=5):
 
 ### Pre Processing
 
-file_path = '../output/rnd/2013-7/1.csv'
-model_path = './model/model.pth'
+file_path = '../datas/rnd/2013-7/1.csv'
+model_path = '../model/model.pth'
 
 train_data, test_data = pre_processing(file_path, train_size=0.8)
 # show_preprocessed_data(train_data)
