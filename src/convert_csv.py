@@ -20,6 +20,7 @@ def convert_gwat_to_csv(directory):
                 stripped_row = [element.strip() for element in row]
                 csv_writer.writerow(stripped_row)
 
+
 def main():
     input_directory = "."
     
@@ -30,6 +31,7 @@ def main():
     for subdir in sub_directories:
         subdir_path = os.path.join(input_directory, subdir)
         convert_gwat_to_csv(subdir_path)
+
 
 if __name__ == "__main__":
     main()
