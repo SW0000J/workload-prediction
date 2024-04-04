@@ -64,7 +64,7 @@ def pre_processing(file_path, train_size=0.8):
     # 특성 스케일링
     features_to_scale = ['CPU usage [%]', 'Memory usage [KB]']
     data = remove_outliers_q(data, features_to_scale)
-    #data = apply_scaling(data, features_to_scale)
+    data = apply_scaling(data, features_to_scale)
     #print(data)
 
     # 시간 관련 특성 추가
@@ -118,10 +118,11 @@ def create_dynamic_edges(data, window_size=5):
 ### Pre Processing
 
 file_path = '../output/rnd/2013-7/1.csv'
+model_path = './model/model.pth'
 
 train_data, test_data = pre_processing(file_path, train_size=0.8)
-show_preprocessed_data(train_data)
-show_preprocessed_data(test_data)
+# show_preprocessed_data(train_data)
+# show_preprocessed_data(test_data)
 
 
 ### Node & Edge
@@ -144,11 +145,11 @@ class GNN(torch.nn.Module):
     def __init__(self, num_node_features, num_classes):
         super(GNN, self).__init__()
         self.conv1 = GCNConv(num_node_features, 64)
-        #self.bn1 = torch.nn.BatchNorm1d(64)
+        self.bn1 = torch.nn.BatchNorm1d(64)
         self.conv2 = GCNConv(64, 32)
-        #self.bn2 = torch.nn.BatchNorm1d(32)
+        self.bn2 = torch.nn.BatchNorm1d(32)
         self.conv3 = GCNConv(32, 16) 
-        #self.bn3 = torch.nn.BatchNorm1d(16)
+        self.bn3 = torch.nn.BatchNorm1d(16)
         self.fc = torch.nn.Linear(16, num_classes)
 
     def forward(self, data):
@@ -156,21 +157,21 @@ class GNN(torch.nn.Module):
 
         # 그래프 컨볼루션 레이어
         x = self.conv1(x, edge_index)
-        #x = F.relu(self.bn1(x))
+        x = F.relu(self.bn1(x))
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
 
         x = self.conv2(x, edge_index)
-        #x = F.relu(self.bn2(x))
+        x = F.relu(self.bn2(x))
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
 
         x = self.conv3(x, edge_index)
-        #x = F.relu(self.bn3(x))
+        x = F.relu(self.bn3(x))
         x = F.relu(x)
 
         x = self.fc(x)
-        #x = torch.sigmoid(x)
+        x = torch.sigmoid(x)
         
         return x
 
@@ -213,11 +214,11 @@ print(f'Test Loss: {test_loss.item()}')
 ### 모델 저장
 
 # 모델 저장하기
-torch.save(model.state_dict(), 'model.pth')
+torch.save(model.state_dict(), model_path)
 
 # 모델 로드하기
 model = GNN(num_node_features=6, num_classes=1)  # 모델 재정의
-model.load_state_dict(torch.load('model.pth'))
+model.load_state_dict(torch.load(model_path))
 
 
 ### 예측값과 실제값 시각화
