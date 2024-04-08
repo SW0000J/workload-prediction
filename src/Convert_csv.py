@@ -1,5 +1,7 @@
-import os
 import csv
+import gzip
+import os
+
 
 def convert_gwat_to_csv(directory):
     output_directory = "./output/" + directory
@@ -21,7 +23,21 @@ def convert_gwat_to_csv(directory):
                 csv_writer.writerow(stripped_row)
 
 
-def main():
+def decompress_google_cluster(directory):
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.gz'):
+                file_path = os.path.join(root, file)
+                # Remove .gz -> [:-3]
+                decompressed_file_path = file_path[:-3]
+                
+                with gzip.open(file_path, 'rb') as f_in:
+                    with open(decompressed_file_path, 'wb') as f_out:
+                        f_out.write(f_in.read())
+                print(f"Decompressed: {file_path} -> {decompressed_file_path}")
+
+
+def test_gwat():
     input_directory = "."
     
     sub_directories = [subdir for subdir in os.listdir(input_directory) if os.path.isdir(os.path.join(input_directory, subdir)) and subdir != 'output']
@@ -33,5 +49,14 @@ def main():
         convert_gwat_to_csv(subdir_path)
 
 
+def test_gc():
+    base_directory = "../datas/clusterdata-2011-2"
+    subdirectories = ["job_events", "machine_attributes", "machine_events", 
+                      "task_constraints", "task_events", "task_usage"
+                      ]
+    decompress_google_cluster(base_directory)
+
+
 if __name__ == "__main__":
-    main()
+    # test_gwat()
+    test_gc()
