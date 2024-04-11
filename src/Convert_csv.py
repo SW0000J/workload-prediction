@@ -101,6 +101,9 @@ def test_sort_gc():
 
 
 if __name__ == "__main__":
+    print("Convery_csv.py!")
+
     # test_gwat()
-    #test_gc()
-    test_sort_gc()
+    # test_gc()
+    # test_sort_gc()
+    pass
