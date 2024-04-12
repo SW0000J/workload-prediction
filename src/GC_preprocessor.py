@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pandas as pd
 import pickle
+import matplotlib.pyplot as plt
 import random
 from sklearn.preprocessing import MinMaxScaler
 import torch
@@ -33,11 +34,8 @@ def load_graph(job_id):
 
     with open(dataset_path, "rb") as f:
         graph = pickle.load(f)
-        
-    print(graph)
 
     return graph
-    # Todo
 
 
 def get_all_job_ids(dataset_path, csv_range, job_cols_to_use):
@@ -87,6 +85,17 @@ def save_preprocessed_graph_data(dataset_path, csv_range, task_cols_to_use, task
                 group.to_csv(output_file, index=False)
 
 
+def save_graph_status(job_id, n_nodes, n_edges):
+    output_file = "../datas/graphs/graph_stats.csv"
+
+    stats_df = pd.DataFrame({"job_id": [job_id], "n_node": [n_nodes], "n_edge": [n_edges]})
+
+    if not os.path.exists(output_file):
+        stats_df.to_csv(output_file, index=False)
+    else:
+        stats_df.to_csv(output_file, mode='a', header=False, index=False)
+
+
 def make_graph(job_id, output_path, machine_cpu_info, machine_memory_info):
     G = nx.Graph()
 
@@ -118,19 +127,29 @@ def make_graph(job_id, output_path, machine_cpu_info, machine_memory_info):
         G.add_edge(task_id, machine_id, 
                    mean_cpu_usage_rate=row["mean_cpu_usage_rate"],
                    canonical_memory_usage=row["canonical_memory_usage"])
-
-    if not nx.is_connected(G):
-        print("Error!!")
     
-    if G.number_of_nodes() < 10:
-        #print(G)
+    if G.number_of_nodes() < 10 or not nx.is_connected(G):
         G = nx.Graph()
     else:
         save_graph(G, job_id)
-        #print(G)
-        pass
+        save_graph_status(job_id, G.number_of_nodes(), G.number_of_edges())
 
     return G
+
+
+def show_node_dist():
+    data_path = "../datas/graphs/graph_stats.csv"
+    
+    df = pd.read_csv(data_path)
+    df["log_n_node"] = np.log1p(df["n_node"])
+    
+    plt.figure(figsize=(10, 6))
+    plt.hist(df["n_node"], bins=20, color="skyblue", edgecolor="black")
+    plt.title("Distribution of Node Counts")
+    plt.xlabel("Number of Nodes")
+    plt.ylabel("Frequency")
+    plt.grid(True)
+    plt.show()
 
 
 def preprocessing():
@@ -159,16 +178,12 @@ def preprocessing():
     machines_df = pd.read_csv(f"{dataset_path}/machine_events/part-00000-of-00001.csv", usecols=machine_cols_to_use)
     machines_info = machines_df.set_index("machine_id").T.to_dict("index")
 
-    #csv_range = 20
     csv_range = TOTAL_ITER
 
     ## If you want to run preprocess_graph_data(), fix parameters
     # save_preprocessed_graph_data(dataset_path, csv_range, task_cols_to_use, task_usage_cols_to_use)
 
     job_ids = get_all_job_ids(dataset_path, csv_range, job_cols_to_use)
-    #print(len(job_ids))
-
-    #graph = make_graph(3418309, output_path, machines_info["capacity_cpu"], machines_info["capacity_memory"])
 
     for job_id in tqdm(job_ids, desc="Processing jobs"):
         graph = make_graph(job_id, output_path, machines_info["capacity_cpu"], machines_info["capacity_memory"])
@@ -207,6 +222,7 @@ def preprocessing():
 
 
 if __name__ == "__main__":
-    graphs = preprocessing()
+    #graphs = preprocessing()
     #save_graph(graphs)
     #load_graph(6253708944)
+    show_node_dist()
