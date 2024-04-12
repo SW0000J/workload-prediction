@@ -137,14 +137,24 @@ def make_graph(job_id, output_path, machine_cpu_info, machine_memory_info):
     return G
 
 
+def filtering_node_data(df, low_percent, high_percent):
+    low_quantile = df["n_node"].quantile(low_percent)
+    high_quantile = df["n_node"].quantile(high_percent)
+    
+    filtered_df = df[(df["n_node"] > low_quantile) & (df["n_node"] < high_quantile)]
+    
+    return filtered_df
+
+
 def show_node_dist():
     data_path = "../datas/graphs/graph_stats.csv"
     
     df = pd.read_csv(data_path)
-    df["log_n_node"] = np.log1p(df["n_node"])
+
+    filtered_df = filtering_node_data(df, 0.2, 0.6)
     
     plt.figure(figsize=(10, 6))
-    plt.hist(df["n_node"], bins=20, color="skyblue", edgecolor="black")
+    plt.hist(filtered_df["n_node"], bins=20, color="skyblue", edgecolor="black")
     plt.title("Distribution of Node Counts")
     plt.xlabel("Number of Nodes")
     plt.ylabel("Frequency")
