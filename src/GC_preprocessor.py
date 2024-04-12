@@ -95,6 +95,9 @@ def make_graph(job_id, output_path, machine_cpu_info, machine_memory_info):
     except FileNotFoundError:
         # print(f"Error: The file for job_id {job_id} does not exist in the specified directory.")
         return G
+    
+    if not G.has_node(job_id):
+        G.add_node(job_id, node_type="job")
 
     for _, row in job_df.iterrows():
         machine_id = row["machine_id"]
@@ -109,16 +112,22 @@ def make_graph(job_id, output_path, machine_cpu_info, machine_memory_info):
             G.add_node(task_id, node_type="task",
                        request_cpu=row["request_cpu"],
                        request_memory=row["request_memory"])
+            
+        G.add_edge(job_id, machine_id)
         
         G.add_edge(task_id, machine_id, 
                    mean_cpu_usage_rate=row["mean_cpu_usage_rate"],
                    canonical_memory_usage=row["canonical_memory_usage"])
+
+    if not nx.is_connected(G):
+        print("Error!!")
     
     if G.number_of_nodes() < 10:
+        #print(G)
         G = nx.Graph()
     else:
         save_graph(G, job_id)
-        print(G)
+        #print(G)
         pass
 
     return G
@@ -157,7 +166,9 @@ def preprocessing():
     # save_preprocessed_graph_data(dataset_path, csv_range, task_cols_to_use, task_usage_cols_to_use)
 
     job_ids = get_all_job_ids(dataset_path, csv_range, job_cols_to_use)
-    print(len(job_ids))
+    #print(len(job_ids))
+
+    #graph = make_graph(3418309, output_path, machines_info["capacity_cpu"], machines_info["capacity_memory"])
 
     for job_id in tqdm(job_ids, desc="Processing jobs"):
         graph = make_graph(job_id, output_path, machines_info["capacity_cpu"], machines_info["capacity_memory"])
