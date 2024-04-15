@@ -151,7 +151,7 @@ def show_node_dist():
     
     df = pd.read_csv(data_path)
 
-    filtered_df = filtering_node_data(df, 0.2, 0.6)
+    filtered_df = filtering_node_data(df, 0.1, 0.9)
     
     plt.figure(figsize=(10, 6))
     plt.hist(filtered_df["n_node"], bins=20, color="skyblue", edgecolor="black")
