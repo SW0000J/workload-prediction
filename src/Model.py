@@ -5,8 +5,21 @@ from torch_geometric.nn import GCNConv
 import torchvision.models as models
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from Dataloader import GraphDataset
+
+
+class MaskedMSELoss(nn.Module):
+    def __init__(self):
+        super(MaskedMSELoss, self).__init__()
+
+    def forward(self, input, target):
+        mask = target != -1
+        masked_input = input[mask]
+        masked_target = target[mask]
+        return F.mse_loss(masked_input, masked_target)
+
 
 
 class GCN(torch.nn.Module):
@@ -32,15 +45,19 @@ if __name__ == "__main__":
 
     model = GCN(num_features=4, num_classes=2)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    loss_fn = nn.MSELoss()
+    loss_fn = MaskedMSELoss()
 
     model.train()
     total_loss = 0
-    for data in train_loader:
-        print(data)
+    for data in tqdm(train_loader, desc="Train batch"):
         optimizer.zero_grad()
         out = model(data)
         loss = loss_fn(out, data.y.float())
+        if torch.isnan(loss):
+            print("NaN detected!")
+            print("Outputs:", out)
+            print("Labels:", data.y)
+            break
         loss.backward()
         optimizer.step()
         total_loss += loss.item()

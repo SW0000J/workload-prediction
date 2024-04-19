@@ -105,31 +105,40 @@ def make_graph(job_id, output_path, machine_cpu_info, machine_memory_info):
         # print(f"Error: The file for job_id {job_id} does not exist in the specified directory.")
         return G
     
-    if not G.has_node(job_id):
-        G.add_node(job_id, node_type="job")
+    G.add_node(job_id, node_type="job", capacity_cpu=None, capacity_memory=None,
+               request_cpu=None, request_memory=None, mean_cpu_usage_rate=None, canonical_memory_usage=None)
 
     for _, row in job_df.iterrows():
         machine_id = row["machine_id"]
         task_id = row["task_id"]
-        
+        edge_id = f"{task_id}_to_{machine_id}"
+
         if not G.has_node(machine_id):
             G.add_node(machine_id, node_type="machine",
                        capacity_cpu=machine_cpu_info[machine_id], 
-                       capacity_memory=machine_memory_info[machine_id])
+                       capacity_memory=machine_memory_info[machine_id], 
+                       request_cpu=None, request_memory=None, mean_cpu_usage_rate=None, canonical_memory_usage=None)
 
         if not G.has_node(task_id):
             G.add_node(task_id, node_type="task",
-                       request_cpu=row["request_cpu"],
-                       request_memory=row["request_memory"])
-            
-        G.add_edge(job_id, machine_id)
-        
-        G.add_edge(task_id, machine_id, 
+                       request_cpu=row["request_cpu"], request_memory=row["request_memory"],
+                       capacity_cpu=None, capacity_memory=None, mean_cpu_usage_rate=None, canonical_memory_usage=None)
+
+        G.add_node(edge_id, node_type="edge_connection",
+                   capacity_cpu=None, capacity_memory=None,
+                   request_cpu=None, request_memory=None,
                    mean_cpu_usage_rate=row["mean_cpu_usage_rate"],
                    canonical_memory_usage=row["canonical_memory_usage"])
+
+        G.add_edge(job_id, task_id)
+        G.add_edge(task_id, edge_id)
+        G.add_edge(edge_id, machine_id)
     
-    if G.number_of_nodes() < 10 or not nx.is_connected(G):
-        G = nx.Graph()
+    if G.number_of_nodes() < 10:
+        G.clear()
+    elif not nx.is_connected(G):
+        print("Not conntected!")
+        G.clear()
     else:
         save_graph(G, job_id)
         save_graph_status(job_id, G.number_of_nodes(), G.number_of_edges())
@@ -191,7 +200,12 @@ def preprocessing():
     csv_range = TOTAL_ITER
 
     ## If you want to run preprocess_graph_data(), fix parameters
-    # save_preprocessed_graph_data(dataset_path, csv_range, task_cols_to_use, task_usage_cols_to_use)
+
+    # Default: False
+    SAVE_NEW_DATA = True
+
+    if SAVE_NEW_DATA:
+        save_preprocessed_graph_data(dataset_path, csv_range, task_cols_to_use, task_usage_cols_to_use)
 
     job_ids = get_all_job_ids(dataset_path, csv_range, job_cols_to_use)
 
@@ -232,7 +246,7 @@ def preprocessing():
 
 
 if __name__ == "__main__":
-    #graphs = preprocessing()
+    graphs = preprocessing()
     #save_graph(graphs)
     #load_graph(6253708944)
-    show_node_dist()
+    #show_node_dist()

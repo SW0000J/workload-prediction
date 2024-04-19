@@ -39,17 +39,6 @@ class GraphDataset(Dataset):
         with open(filepath, "rb") as f:
             graph = pickle.load(f)
 
-        for node_id, node_data in graph.nodes(data=True):
-            node_data['x'] = torch.tensor([node_data.get("capacity_cpu", 0),
-                                           node_data.get("capacity_memory", 0),
-                                           node_data.get("request_cpu", 0),
-                                           node_data.get("request_memory", 0)], 
-                                           dtype=torch.float)
-
-            node_data['y'] = torch.tensor([node_data.get("mean_cpu_usage_rate", 0),
-                                           node_data.get("canonical_memory_usage", 0)], 
-                                           dtype=torch.long)
-
         data = from_networkx(graph)
         return data
     
@@ -60,17 +49,6 @@ class GraphDataset(Dataset):
         
         with open(filepath, "rb") as f:
             graph = pickle.load(f)
-
-        for node_id, node_data in graph.nodes(data=True):
-            node_data['x'] = torch.tensor([node_data.get("capacity_cpu", 0),
-                                           node_data.get("capacity_memory", 0),
-                                           node_data.get("request_cpu", 0),
-                                           node_data.get("request_memory", 0)], 
-                                           dtype=torch.float)
-
-            node_data['y'] = torch.tensor([node_data.get("mean_cpu_usage_rate", 0),
-                                           node_data.get("canonical_memory_usage", 0)], 
-                                           dtype=torch.long)
 
         data = from_networkx(graph)
         return data
@@ -91,6 +69,17 @@ class GraphDataset(Dataset):
                     edge_attrs[key] = ignore_value
 
         #print(filepath)
+
+        for node_id, node_data in graph.nodes(data=True):
+            node_data['x'] = torch.tensor([node_data.get("capacity_cpu", 0),
+                                           node_data.get("capacity_memory", 0),
+                                           node_data.get("request_cpu", 0),
+                                           node_data.get("request_memory", 0)], 
+                                           dtype=torch.float)
+
+            node_data['y'] = torch.tensor([node_data.get("mean_cpu_usage_rate", 0),
+                                           node_data.get("canonical_memory_usage", 0)], 
+                                           dtype=torch.long)
 
         data = from_networkx(graph)
         return data
