@@ -50,6 +50,24 @@ class GraphDataset(Dataset):
         with open(filepath, "rb") as f:
             graph = pickle.load(f)
 
+        for node_id, node_data in graph.nodes(data=True):
+            x_values = []
+            for key in ["capacity_cpu", "capacity_memory", "request_cpu", "request_memory"]:
+                value = node_data.get(key)
+                if value is None:
+                    value = -1
+                x_values.append(value)
+
+            y_values = []
+            for key in ["mean_cpu_usage_rate", "canonical_memory_usage"]:
+                value = node_data.get(key)
+                if value is None:
+                    value = -1
+                y_values.append(value)
+
+            node_data['x'] = torch.tensor(x_values, dtype=torch.float)
+            node_data['y'] = torch.tensor(y_values, dtype=torch.float)
+
         data = from_networkx(graph)
         return data
     

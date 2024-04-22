@@ -21,7 +21,6 @@ class MaskedMSELoss(nn.Module):
         return F.mse_loss(masked_input, masked_target)
 
 
-
 class GCN(torch.nn.Module):
     def __init__(self, num_features, num_classes):
         super(GCN, self).__init__()
@@ -57,9 +56,10 @@ if __name__ == "__main__":
             print("NaN detected!")
             print("Outputs:", out)
             print("Labels:", data.y)
-            break
+            continue
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
+        print(f"\n{loss.item()}")
 
-    print(f"Total loss: {total_loss}")
+    print(f"Total loss: {total_loss/len(train_loader)}")

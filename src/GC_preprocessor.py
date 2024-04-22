@@ -202,7 +202,7 @@ def preprocessing():
     ## If you want to run preprocess_graph_data(), fix parameters
 
     # Default: False
-    SAVE_NEW_DATA = True
+    SAVE_NEW_DATA = False
 
     if SAVE_NEW_DATA:
         save_preprocessed_graph_data(dataset_path, csv_range, task_cols_to_use, task_usage_cols_to_use)
