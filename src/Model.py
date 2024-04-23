@@ -35,10 +35,79 @@ class GCN(torch.nn.Module):
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
 
-        return F.log_softmax(x, dim=1)
+        return x
     
 
+def train_model(model, train_loader, optimizer, loss_fn, epochs=1):
+    model.train()
+
+    for epoch in tqdm(range(epochs), desc="Epochs"):
+        total_loss = 0
+
+        for data in tqdm(train_loader, desc="Training"):
+            optimizer.zero_grad()
+            out = model(data)
+            loss = loss_fn(out, data.y.float())
+
+            if torch.isnan(loss):
+                print("NaN detected in loss, skipping the batch!")
+                continue
+
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(train_loader)}")
+
+
+def save_model(model, path='model.pth'):
+    torch.save(model.state_dict(), path)
+    print(f"Model saved to {path}")
+
+
+def load_model(model_path, num_features, num_classes):
+    model = GCN(num_features=num_features, num_classes=num_classes)
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+
+    return model
+
+
+def evaluate_model(model, loader):
+    with torch.no_grad():
+        for data in loader:
+            out = model(data)
+            _, pred = out.max(dim=1)
+            diff = (pred - data.y).abs().float().mean()
+            print(f"Average difference: {diff.item()}")
+
+
 if __name__ == "__main__":
+    # Default: Fasle
+    new_train = True
+
+    root_dir = "../datas/graphs"
+    dataset = GraphDataset(root_dir=root_dir)
+    train_dataset, test_dataset = dataset.get_train_test_split()
+
+    if new_train:
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+
+        model = GCN(num_features=4, num_classes=2)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        loss_fn = MaskedMSELoss()
+
+        train_model(model, train_loader, optimizer, loss_fn, epochs=5)
+        save_model(model)
+
+    model = load_model('model.pth', num_features=4, num_classes=2)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    
+    evaluate_model(model, test_loader)
+
+
+"""
+def train_model():
     dataset = GraphDataset()
     train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
@@ -47,19 +116,27 @@ if __name__ == "__main__":
     loss_fn = MaskedMSELoss()
 
     model.train()
-    total_loss = 0
-    for data in tqdm(train_loader, desc="Train batch"):
-        optimizer.zero_grad()
-        out = model(data)
-        loss = loss_fn(out, data.y.float())
-        if torch.isnan(loss):
-            print("NaN detected!")
-            print("Outputs:", out)
-            print("Labels:", data.y)
-            continue
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-        print(f"\n{loss.item()}")
 
-    print(f"Total loss: {total_loss/len(train_loader)}")
+    epoch = 1
+    for _ in range(epoch):
+        total_loss = 0
+
+        for data in tqdm(train_loader, desc="Train batch"):
+            optimizer.zero_grad()
+            out = model(data)
+            loss = loss_fn(out, data.y.float())
+            if torch.isnan(loss):
+                print("NaN detected!")
+                #print("Outputs:", out)
+                #print("Labels:", data.y)
+                continue
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            #print(f"\n{loss.item()}")
+
+        print(f"Total loss: {total_loss/len(train_loader)}")
+
+    torch.save(model.state_dict(), 'model.pth')
+    print("Model saved successfully!")
+"""

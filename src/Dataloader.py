@@ -9,27 +9,40 @@ from torch_geometric.utils import from_networkx
 
 
 class GraphDataset(Dataset):
-    def __init__(self, transform=None, pre_transform=None, train_val_split=(0.8, 0.2)):
+    def __init__(self, root_dir=None, file_list=None, transform=None, pre_transform=None, train_val_split=(0.8, 0.2)):
         super(GraphDataset, self).__init__(transform, pre_transform)
 
-        self.graph_path = "../datas/graphs"
+        if root_dir and not file_list:
+            self.graph_path = root_dir
 
-        graph_extension = ".gpickle"
-        self.graph_files = []
+            graph_extension = ".gpickle"
+            self.graph_files = []
 
-        for filename in os.listdir(self.graph_path):
-            if filename.endswith(graph_extension):
-                self.graph_files.append(filename)
+            for filename in os.listdir(self.graph_path):
+                if filename.endswith(graph_extension):
+                    self.graph_files.append(filename)
 
-        random.shuffle(self.graph_files)
+            random.shuffle(self.graph_files)
 
-        total_graphs = len(self.graph_files)
-        self.train_size = int(total_graphs * train_val_split[0])
-        self.val_size = total_graphs - self.train_size
-        self.train_files = self.graph_files[:self.train_size]
-        self.val_files = self.graph_files[self.train_size:]
+            total_graphs = len(self.graph_files)
+            self.train_size = int(total_graphs * train_val_split[0])
+            self.val_size = total_graphs - self.train_size
+            self.train_files = self.graph_files[:self.train_size]
+            self.val_files = self.graph_files[self.train_size:]
 
-        print(f"\nTotal graphs: {total_graphs} \nTrain graphs: {self.train_size} \nValidation graphs: {self.val_size}")
+            print(f"\nTotal graphs: {total_graphs} \nTrain graphs: {self.train_size} \nValidation graphs: {self.val_size}")
+        elif file_list:
+            self.graph_path = "../datas/graphs"
+            self.graph_files = file_list
+        else:
+            raise ValueError("Invalid constructor parameters")
+
+    
+    def get_train_test_split(self):
+        train_dataset = GraphDataset(root_dir=self.graph_path, file_list=self.train_files)
+        validation_dataset = GraphDataset(root_dir=self.graph_path, file_list=self.val_files)
+
+        return train_dataset, validation_dataset
 
 
     def get(self, idx):
