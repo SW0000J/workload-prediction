@@ -171,6 +171,29 @@ def show_node_dist():
     plt.show()
 
 
+def save_data_by_id(output_path, dataset_path, data_type, header_list):
+    save_path = os.path.join(output_path, data_type)
+    save_data = os.path.join(dataset_path, data_type)
+    
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    for file_name in tqdm(os.listdir(save_data)):
+        if file_name.endswith(".csv"):
+            file_path = os.path.join(save_data, file_name)
+
+            data = pd.read_csv(file_path, usecols=header_list)
+
+            for job_id, group in data.groupby("job_id"):
+                group = group.drop(columns=["job_id"])
+                output_file_path = os.path.join(save_path, f"{job_id}.csv")
+
+                if os.path.exists(output_file_path):
+                    group.to_csv(output_file_path, mode='a', header=False, index=False)
+                else:
+                    group.to_csv(output_file_path, index=False)
+
+
 def preprocessing():
     output_path = "../datas"
     dataset_path = "../datas/clusterdata-2011-2"
@@ -179,6 +202,7 @@ def preprocessing():
     # Add machine node
     print("Read csv!")
     machine_col = ["timestamp", "machine_id", "event_type", "platform_id", "capacity_cpu", "capacity_memory"]
+    machine_attrs_col = ["timestamp", "machine_id", "attribute_name", "attribute_value", "attribute_deleted"]
     job_col = ["timestamp", "missing_info", "job_id", "event_type", "user_name", "scheduling_class", "job_name", "logical_job_name"]
     task_col = ["timestamp", "missing_info", "job_id", "task_id", "machine_id", "event_type", "user_name", "scheduling_class",
                  "priority", "request_cpu", "request_memory", "request_disk", "machine_constraint"]
@@ -187,6 +211,7 @@ def preprocessing():
                       "total_page_cache_memory_usage", "maximum_memory_usage", "mean_disk_io_time", 
                       "mean_local_disk_space_used", "maximum_cpu_usage", "maximum_disk_io_time", "cpi",
                       "mai", "sample_portion", "aggregation_type", "sampled_cpu_usage"]
+    task_const_col = ["timestamp", "job_id", "task_index", "attribute_name", "attribute_value", "comparison_operator"]
     
     machine_cols_to_use = ["machine_id", "capacity_cpu", "capacity_memory"]
     job_cols_to_use = ["job_id", "event_type", "user_name"]
@@ -246,7 +271,34 @@ def preprocessing():
 
 
 if __name__ == "__main__":
-    graphs = preprocessing()
+    #graphs = preprocessing()
     #save_graph(graphs)
     #load_graph(6253708944)
     #show_node_dist()
+
+
+    output_path = "../datas/cluserdata_preprocessed"
+    dataset_path = "../datas/clusterdata-2011-2"
+    table_names = ["job_events", "machine_attributes", "machine_events", "task_constraints", "task_events", "task_usage"]
+
+    machine_col = ["timestamp", "machine_id", "event_type", "platform_id", "capacity_cpu", "capacity_memory"]
+    machine_attrs_col = ["timestamp", "machine_id", "attribute_name", "attribute_value", "attribute_deleted"]
+    job_col = ["timestamp", "missing_info", "job_id", "event_type", "user_name", "scheduling_class", "job_name", "logical_job_name"]
+    task_col = ["timestamp", "missing_info", "job_id", "task_id", "machine_id", "event_type", "user_name", "scheduling_class",
+                 "priority", "request_cpu", "request_memory", "request_disk", "machine_constraint"]
+    task_usage_col = ["start_time", "end_time", "job_id", "task_id", "machine_id", "mean_cpu_usage_rate", 
+                      "canonical_memory_usage", "assigned_memory_usage", "unmapped_page_cache_memory_usage", 
+                      "total_page_cache_memory_usage", "maximum_memory_usage", "mean_disk_io_time", 
+                      "mean_local_disk_space_used", "maximum_cpu_usage", "maximum_disk_io_time", "cpi",
+                      "mai", "sample_portion", "aggregation_type", "sampled_cpu_usage"]
+    task_const_col = ["timestamp", "job_id", "task_id", "attribute_name", "attribute_value", "comparison_operator"]
+    
+    machine_cols_to_use = ["timestamp", "machine_id", "event_type", "capacity_cpu", "capacity_memory"]
+    machine_attrs_cols_to_use = ["timestamp", "machine_id", "attribute_name", "attribute_value", "attribute_deleted"]
+    job_cols_to_use = ["timestamp", "job_id", "event_type", "user_name", "scheduling_class"]
+    task_cols_to_use = ["timestamp", "job_id", "task_id", "machine_id", "event_type", "user_name", "scheduling_class", "priority", 
+                        "request_cpu", "request_memory"]
+    task_usage_cols_to_use = ["start_time", "end_time", "job_id", "task_id", "machine_id", "mean_cpu_usage_rate", "canonical_memory_usage"]
+    task_const_cols_to_use = ["timestamp", "job_id", "task_id", "attribute_name", "attribute_value"]
+
+    save_data_by_id(output_path, dataset_path, table_names[5], task_usage_cols_to_use)

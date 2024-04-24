@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch_geometric
 from torch_geometric.data import Batch, DataLoader
@@ -32,7 +34,7 @@ class GCN(torch.nn.Module):
 
         x = self.conv1(x, edge_index)
         x = F.relu(x)
-        x = F.dropout(x, training=self.training)
+        #x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
 
         return x
@@ -56,7 +58,7 @@ def train_model(model, train_loader, optimizer, loss_fn, epochs=1):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            
+
         print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(train_loader)}")
 
 
@@ -74,17 +76,48 @@ def load_model(model_path, num_features, num_classes):
 
 
 def evaluate_model(model, loader):
+    predictions = []
+    actuals = []
+
     with torch.no_grad():
-        for data in loader:
+        for data in tqdm(loader, desc="Eval"):
             out = model(data)
-            _, pred = out.max(dim=1)
-            diff = (pred - data.y).abs().float().mean()
-            print(f"Average difference: {diff.item()}")
+
+            valid_mask = data.y != -1
+            if valid_mask.any():
+                valid_pred = out[valid_mask]
+                valid_actual = data.y[valid_mask]
+
+                predictions.append(valid_pred.cpu().numpy())
+                actuals.append(valid_actual.cpu().numpy())
+                print(predictions)
+                print(actuals)
+
+    predictions = np.vstack(predictions)
+    actuals = np.vstack(actuals)
+
+    mse = np.mean((predictions - actuals) ** 2)
+    print(f"Mean Squared Error: {mse}")
+    
+    plt.figure(figsize=(15, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(predictions[:, 0], label="Predicted Mean CPU Usage Rate")
+    plt.plot(actuals[:, 0], label="Actual Mean CPU Usage Rate")
+    plt.title("Mean CPU Usage Rate")
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(predictions[:, 1], label="Predicted Canonical Memory Usage")
+    plt.plot(actuals[:, 1], label="Actual Canonical Memory Usage")
+    plt.title("Canonical Memory Usage")
+    plt.legend()
+
+    plt.show()
 
 
 if __name__ == "__main__":
     # Default: Fasle
-    new_train = True
+    new_train = False
 
     root_dir = "../datas/graphs"
     dataset = GraphDataset(root_dir=root_dir)
