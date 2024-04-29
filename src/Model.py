@@ -20,22 +20,33 @@ class MaskedMSELoss(nn.Module):
         mask = target != -1
         masked_input = input[mask]
         masked_target = target[mask]
-        return F.mse_loss(masked_input, masked_target)
+        
+        if torch.isnan(masked_input).any():
+            return torch.tensor(0.0, requires_grad=True)
+        elif masked_target.numel() == 0:
+            return torch.tensor(0.0, device=input.device, requires_grad=True)
+        else:
+            return F.mse_loss(masked_input, masked_target)
 
 
 class GCN(torch.nn.Module):
     def __init__(self, num_features, num_classes):
         super(GCN, self).__init__()
-        self.conv1 = GCNConv(num_features, 16)
-        self.conv2 = GCNConv(16, num_classes)
+        self.conv1 = GCNConv(num_features, 32)
+        self.conv2 = GCNConv(32, 16)
+        self.conv3 = GCNConv(16, num_classes)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
+
+        x = F.normalize(x, p=2, dim=1)
 
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         #x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = self.conv3(x, edge_index)
 
         return x
     
@@ -52,6 +63,8 @@ def train_model(model, train_loader, optimizer, loss_fn, epochs=1):
             loss = loss_fn(out, data.y.float())
 
             if torch.isnan(loss):
+                print("Outputs:", out)
+                print("Labels:", data.y)
                 print("NaN detected in loss, skipping the batch!")
                 continue
 
@@ -90,8 +103,9 @@ def evaluate_model(model, loader):
 
                 predictions.append(valid_pred.cpu().numpy())
                 actuals.append(valid_actual.cpu().numpy())
-                print(predictions)
-                print(actuals)
+                #print(predictions)
+                #print(actuals)
+                break
 
     predictions = np.vstack(predictions)
     actuals = np.vstack(actuals)
@@ -126,14 +140,14 @@ if __name__ == "__main__":
     if new_train:
         train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 
-        model = GCN(num_features=4, num_classes=2)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        model = GCN(num_features=12, num_classes=2)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
         loss_fn = MaskedMSELoss()
 
-        train_model(model, train_loader, optimizer, loss_fn, epochs=5)
+        train_model(model, train_loader, optimizer, loss_fn, epochs=1)
         save_model(model)
 
-    model = load_model('model.pth', num_features=4, num_classes=2)
+    model = load_model('model.pth', num_features=12, num_classes=2)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     
     evaluate_model(model, test_loader)

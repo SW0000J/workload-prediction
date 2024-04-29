@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 import os
+import pandas as pd
 import pickle
 import random
 import torch
@@ -22,6 +23,9 @@ class GraphDataset(Dataset):
                 if filename.endswith(graph_extension):
                     self.graph_files.append(filename)
 
+            # Dataset filtering
+            self.filtering_data_by_max(max_value=10000)
+
             random.shuffle(self.graph_files)
 
             total_graphs = len(self.graph_files)
@@ -36,6 +40,15 @@ class GraphDataset(Dataset):
             self.graph_files = file_list
         else:
             raise ValueError("Invalid constructor parameters")
+
+
+    def filtering_data_by_max(self, max_value):
+        csv_file = os.path.join(self.graph_path, "graph_stats.csv")
+
+        df = pd.read_csv(csv_file)
+        filtered_job_ids = df[df["n_node"] >= max_value]["job_id"]
+        filtered_file_names = [f"job_{job_id}.gpickle" for job_id in filtered_job_ids]
+        self.graph_files = [file for file in self.graph_files if file not in filtered_file_names]
 
     
     def get_train_test_split(self):
@@ -64,57 +77,32 @@ class GraphDataset(Dataset):
             graph = pickle.load(f)
 
         for node_id, node_data in graph.nodes(data=True):
-            x_values = []
-            for key in ["capacity_cpu", "capacity_memory", "request_cpu", "request_memory"]:
-                value = node_data.get(key)
-                if value is None:
-                    value = -1
-                x_values.append(value)
-
-            y_values = []
-            for key in ["mean_cpu_usage_rate", "canonical_memory_usage"]:
-                value = node_data.get(key)
-                if value is None:
-                    value = -1
-                y_values.append(value)
+            x_values = [
+                node_data["timestamp"],
+                node_data["machine_id"],
+                node_data["event_type"],
+                node_data["capacity_cpu"],
+                node_data["capacity_memory"],
+                node_data["task_id"],
+                node_data["start_time"],
+                node_data["end_time"],
+                #node_data["user_name"],
+                node_data["scheduling_class"],
+                node_data["priority"],
+                node_data["request_cpu"],
+                node_data["request_memory"],
+                #node_data["attribute_name"]
+            ]
+            y_values = [
+                node_data["mean_cpu_usage_rate"],
+                node_data["canonical_memory_usage"]
+            ]
 
             node_data['x'] = torch.tensor(x_values, dtype=torch.float)
             node_data['y'] = torch.tensor(y_values, dtype=torch.float)
 
         data = from_networkx(graph)
         return data
-    
-        """
-        ignore_value = -1
-
-        for node in graph.nodes(data=True):
-            required_keys = ["capacity_cpu", "capacity_memory", "request_cpu", "request_memory", "mean_cpu_usage_rate", "canonical_memory_usage"]
-            for key in required_keys:
-                if key not in node[1]:
-                    node[1][key] = ignore_value
-
-        edge_required_keys = ["mean_cpu_usage_rate", "canonical_memory_usage"]
-        for u, v, edge_attrs in graph.edges(data=True):
-            for key in edge_required_keys:
-                if key not in edge_attrs:
-                    edge_attrs[key] = ignore_value
-
-        #print(filepath)
-
-        for node_id, node_data in graph.nodes(data=True):
-            node_data['x'] = torch.tensor([node_data.get("capacity_cpu", 0),
-                                           node_data.get("capacity_memory", 0),
-                                           node_data.get("request_cpu", 0),
-                                           node_data.get("request_memory", 0)], 
-                                           dtype=torch.float)
-
-            node_data['y'] = torch.tensor([node_data.get("mean_cpu_usage_rate", 0),
-                                           node_data.get("canonical_memory_usage", 0)], 
-                                           dtype=torch.long)
-
-        data = from_networkx(graph)
-        return data
-        """
     
 
     def __len__(self):
