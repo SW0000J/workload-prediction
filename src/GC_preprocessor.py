@@ -117,251 +117,156 @@ def save_graph_status(job_id, n_nodes, n_edges):
         stats_df.to_csv(output_file, mode='a', header=False, index=False)
 
 
+def add_nodes_and_edges(G, df, node_type, node_name_prefix, key_attrs, additional_attrs=[], job_to=None):
+    is_task = "task" in node_type
+    task_dict = {}
+
+    previous_node = None
+    for _, row in df.iterrows():
+        if is_task:
+            node_id = f"{node_name_prefix}_{row[key_attrs[0]]}_{row[key_attrs[1]]}_{row[additional_attrs[1]]}"
+        else:
+            node_id = f"{node_name_prefix}_{row[key_attrs[0]]}_{row[key_attrs[1]]}"
+
+        node_attrs = {}
+
+        for attr in key_attrs + additional_attrs:
+            if attr in row:
+                value = row[attr]
+                if pd.notna(value):
+                    node_attrs[attr] = value
+                else:
+                    continue 
+
+        G.add_node(node_id, type=node_type, **node_attrs)
+
+        if not is_task and previous_node:
+            G.add_edge(previous_node, node_id)
+        previous_node = node_id
+
+        if is_task:
+            task_dict.setdefault(row["task_id"], []).append(node_id)
+
+    if is_task and job_to:
+        for nodes in task_dict.values():
+            if nodes:
+                G.add_edge(job_to, nodes[0])
+
+                for i in range(len(nodes) - 1):
+                    G.add_edge(nodes[i], nodes[i+1])
+
+    return task_dict
+
+
+def add_machine_nodes_and_edges(G, df, node_prefix, machine_id):
+    first_node = None
+    previous_node = None
+
+    for _, row in df.iterrows():
+        node_id = f"{node_prefix}_{machine_id}_{row['timestamp']}_{row['event_type']}"
+        node_attrs = {k: v for k, v in row.items() if pd.notna(v)}
+        G.add_node(node_id, type="machine_event", **node_attrs)
+
+        if previous_node:
+            G.add_edge(previous_node, node_id)
+        else:
+            first_node = node_id
+        previous_node = node_id
+    
+    return first_node
+
+
+def connect_tasks_to_machines(G, task_dict, machine_events_path, machine_events_list):
+    for task_id, nodes_list in task_dict.items():
+        first_task_node = nodes_list[0]
+        machine_id = int(G.nodes[first_task_node]["machine_id"])
+        
+        machine_file_name = f"{machine_id}.csv"
+        if machine_file_name in machine_events_list:
+            machine_df = pd.read_csv(os.path.join(machine_events_path, machine_file_name)).dropna(
+                subset=["timestamp", "event_type", "capacity_cpu", "capacity_memory"]
+            )
+            machine_df.sort_values(["timestamp", "event_type"], inplace=True)
+
+            first_machine_node = add_machine_nodes_and_edges(G, machine_df, "machine_event", machine_id)
+
+            if first_machine_node:
+                G.add_edge(first_machine_node, first_task_node)
+
+
 def make_graph(output_path):
     # ["job_events", "machine_attributes", "machine_events", "task_constraints", "task_events", "task_usage"]
     preprocessed_path = os.path.join(output_path, "cluserdata_preprocessed")
     job_path = os.path.join(preprocessed_path, "job_events")
-    task_const_path = os.path.join(preprocessed_path, "task_constraints")
     task_events_path = os.path.join(preprocessed_path, "task_events")
     task_usage_path = os.path.join(preprocessed_path, "task_usage_filtered")
-    """machine_attrs_path = os.path.join(preprocessed_path, "machine_attributes")"""
     machine_events_path = os.path.join(preprocessed_path, "machine_events")
 
-    """machine_attrs_list = os.listdir(machine_attrs_path)"""
     machine_events_list = os.listdir(machine_events_path)
 
-    all_features = set([
-            "timestamp", "machine_id", "event_type", "capacity_cpu", "capacity_memory", "task_id",
-            "start_time", "end_time", "user_name", "scheduling_class", "priority", "request_cpu", "request_memory",
-            "mean_cpu_usage_rate", "canonical_memory_usage", "attribute_name", "attribute_value", "attribute_deleted"
-    ])
-    default_values = {feature: -1 for feature in all_features}
-
     for csv_name in tqdm(os.listdir(job_path), desc="Job_list"):
+        if not csv_name.endswith(".csv"):
+            continue
+        if csv_name not in os.listdir(task_events_path):
+            continue
+        if csv_name not in os.listdir(task_usage_path):
+            continue
+
         G = nx.Graph()
 
-        if csv_name.endswith(".csv"):
-            job_id = os.path.splitext(csv_name)[0]
-
-            if csv_name not in os.listdir(task_const_path):
-                continue
-            if csv_name not in os.listdir(task_events_path):
-                continue
-            if csv_name not in os.listdir(task_usage_path):
-                continue
+        datasets = {
+            "job_events": ["timestamp", "event_type", "user_name", "scheduling_class"],
+            "task_events": ["timestamp", "task_id", "machine_id", "event_type", "user_name", "scheduling_class", "priority", "request_cpu", "request_memory"],
+            "task_usage": ["start_time", "end_time", "task_id", "machine_id", "mean_cpu_usage_rate", "canonical_memory_usage"],
+            "machine_events": ["timestamp", "event_type", "capacity_cpu", "capacity_memory"]
+        }
         
-            job_df = pd.read_csv(os.path.join(job_path, csv_name))
-            task_const_df = pd.read_csv(os.path.join(task_const_path, csv_name))
-            task_events_df = pd.read_csv(os.path.join(task_events_path, csv_name))
-            task_usage_df = pd.read_csv(os.path.join(task_usage_path, csv_name))
+        try:
+            job_df = pd.read_csv(os.path.join(job_path, csv_name)).dropna(subset=datasets["job_events"])
+            task_events_df = pd.read_csv(os.path.join(task_events_path, csv_name)).dropna(subset=datasets["task_events"])
+            task_usage_df = pd.read_csv(os.path.join(task_usage_path, csv_name)).dropna(subset=datasets["task_usage"])
+        except pd.errors.EmptyDataError:
+            continue
 
-            job_df.sort_values("timestamp", inplace=True)
-            task_const_df.sort_values(["timestamp", "task_id"], inplace=True)
-            task_events_df.sort_values(["timestamp", "machine_id", "task_id"], inplace=True)
-            task_usage_df.sort_values(["start_time", "end_time", "machine_id", "task_id"], inplace=True)
+        job_df.sort_values(datasets["job_events"], inplace=True)
+        task_events_df.sort_values(datasets["task_events"], inplace=True)
+        task_usage_df.sort_values(datasets["task_usage"], inplace=True)
 
-        G.add_node(job_id, type="job", **default_values.copy())
+        job_id = os.path.splitext(csv_name)[0]
+        first_job_df = job_df.iloc[0]
+        first_job_node = f"{'job_events'}_{first_job_df['timestamp']}_{first_job_df['event_type']}"
 
         # Add job node & edge with timestamp
-        prev_job_node = None
-        for _, row in job_df.iterrows():
-            job_node_attributes = default_values.copy()
-            job_node_attributes.update({
-                "timestamp": row["timestamp"],
-                "event_type": row["event_type"],
-                "scheduling_class": row["scheduling_class"]
-            })
-
-            curr_job_node = f"Job_{job_id}_{row['timestamp']}"
-            G.add_node(curr_job_node, type="job_event", **job_node_attributes)
-
-            if prev_job_node:
-                G.add_edge(prev_job_node, curr_job_node)
-            else:
-                G.add_edge(job_id, curr_job_node)
-
-            prev_job_node = curr_job_node
-
-        # Add task const node & edge with timestamp
-        task_const_dict = {}
-        prev_task_const_node = None
-        for _, row in task_const_df.iterrows():
-            task_const_node_attributes = default_values.copy()
-            task_const_node_attributes.update({
-                "timestamp": row["timestamp"],
-                "task_id": row["task_id"],
-                "attribute_name": row["attribute_value"]
-            })
-
-            curr_task_const_node = f"Task_const_{job_id}_{row['timestamp']}"
-            G.add_node(curr_task_const_node, type="task_const", **task_const_node_attributes)
-
-            if row["task_id"] in task_const_dict:
-                task_const_dict[row["task_id"]].append(curr_task_const_node)
-            else:
-                task_const_dict[row["task_id"]] = [curr_task_const_node]
-
-            if prev_task_const_node:
-                G.add_edge(prev_task_const_node, curr_task_const_node)
-            else:
-                G.add_edge(job_id, curr_task_const_node)
-
-            prev_task_const_node = curr_task_const_node
+        add_nodes_and_edges(G, job_df, node_type="job", node_name_prefix="job_events", 
+                            key_attrs=datasets["job_events"][:2], additional_attrs=datasets["job_events"][2:])
+        #print("Add job node & edge with timestamp: ",G.number_of_nodes(), G.number_of_edges())
 
         # Add task events node & edge with timestamp
-        task_events_dict = {}
-        prev_task_events_node = None
-        for _, row in task_events_df.iterrows():
-            task_events_node_attributes = default_values.copy()
-            task_events_node_attributes.update({
-                "timestamp": row["timestamp"],
-                "task_id": row["task_id"],
-                "machine_id": row["machine_id"],
-                "event_type": row["event_type"],
-                "user_name": row["user_name"],
-                "scheduling_class": row["scheduling_class"],
-                "priority": row["priority"],
-                "request_cpu": row["request_cpu"],
-                "request_memory": row["request_memory"]
-            })
-
-            curr_task_events_node = f"Task_events_{job_id}_{row['timestamp']}"
-            G.add_node(curr_task_events_node, type="task_events", **task_events_node_attributes)
-
-            if row["task_id"] in task_events_dict:
-                task_events_dict[row["task_id"]].append(curr_task_events_node)
-            else:
-                task_events_dict[row["task_id"]] = [curr_task_events_node]
-
-            if row["task_id"] in task_const_dict:
-                for const_node in task_const_dict[row["task_id"]]:
-                    G.add_edge(const_node, curr_task_events_node)
-
-            if prev_task_events_node:
-                G.add_edge(prev_task_events_node, curr_task_events_node)
-            else:
-                G.add_edge(job_id, curr_task_events_node)
-
-            prev_task_events_node = curr_task_events_node
-
-            # machine events add
-            machine_csv = str(row["machine_id"])+".csv"
-            if row["machine_id"] not in machine_events_list:
-                continue
-            """if row["machine_id"] not in machine_attrs_list:
-                continue"""
-
-            prev_time = 0
-            max_time = row["timestamp"]
-
-            machine_events_df = pd.read_csv(os.path.join(machine_events_path, machine_csv))
-            machine_events_df = machine_events_df[machine_events_df["timestamp"] <= max_time]
-            machine_events_df = machine_events_df[machine_events_df["timestamp"] >= prev_time]
-
-            prev_task_events_node = None
-            for temp, event in machine_events_df.iterrows():
-                curr_machine_events_node = f"Machine_events_{row['machine_id']}_{event['timestamp']}"
-
-                if G.has_node(curr_machine_events_node):
-                    G.add_edge(curr_machine_events_node, curr_task_events_node)
-                    continue
-
-                machine_events_attributes = default_values.copy()
-                machine_events_attributes.update({
-                    "timestamp": event["timestamp"],
-                    "event_type": event["event_type"],
-                    "capacity_cpu": event["capacity_cpu"],
-                    "capacity_memory": event["capacity_memory"]
-                })
-
-                G.add_node(curr_machine_events_node, type="task_events", **task_const_node_attributes)
-
-                if prev_task_events_node:
-                    G.add_edge(prev_task_events_node, curr_machine_events_node)
-                    G.add_edge(curr_machine_events_node, curr_task_events_node)
-                else:
-                    G.add_edge(job_id, curr_machine_events_node)
-
-                prev_task_events_node = curr_machine_events_node
+        task_events_dict = add_nodes_and_edges(G, task_events_df, node_type="task_events", node_name_prefix="task_events", 
+                            key_attrs=datasets["task_events"][:2], additional_attrs=datasets["task_events"][2:], job_to=first_job_node)
+        #print("Add task events node & edge with timestamp: ", G.number_of_nodes(), G.number_of_edges())
 
         # Add task usage node & edge with timestamp
-        prev_task_usage_node = None
-        for _, row in task_usage_df.iterrows():
-            task_usage_node_attributes = default_values.copy()
-            task_usage_node_attributes.update({
-                "start_time": row["start_time"],
-                "end_time": row["end_time"],
-                "task_id": row["task_id"],
-                "machine_id": row["machine_id"],
-                "mean_cpu_usage_rate": row["mean_cpu_usage_rate"],
-                "canonical_memory_usage": row["canonical_memory_usage"]
-            })
+        task_usage_dict = add_nodes_and_edges(G, task_usage_df, node_type="task_usage", node_name_prefix="task_usage", 
+                            key_attrs=datasets["task_usage"][:2], additional_attrs=datasets["task_usage"][2:], job_to=first_job_node)
+        #print("Add task usage node & edge with timestamp: ", G.number_of_nodes(), G.number_of_edges())
+        
+        # Add edge btween task_events & task_usages
+        for task_id, events_nodes in task_events_dict.items():
+                if task_id in task_usage_dict:
+                    G.add_edge(events_nodes[0], task_usage_dict[task_id][0])
+        #print("Add edge btween task_events & task_usages: ", G.number_of_nodes(), G.number_of_edges())
+        
+        # Add edge between tasks & machines
+        connect_tasks_to_machines(G, task_events_dict, machine_events_path, machine_events_list)
+        connect_tasks_to_machines(G, task_usage_dict, machine_events_path, machine_events_list)
+        #print("Add edge between tasks & machines", G.number_of_nodes(), G.number_of_edges())
 
-            curr_task_usage_node = f"Task_usage_{job_id}_{row['start_time']}_{row['end_time']}"
-            G.add_node(curr_task_usage_node, type="task_usage", **task_usage_node_attributes)
-
-            if row["task_id"] in task_const_dict:
-                for const_node in task_const_dict[row["task_id"]]:
-                    G.add_edge(const_node, curr_task_usage_node)
-
-            if row["task_id"] in task_events_dict:
-                for event_node in task_events_dict[row["task_id"]]:
-                    G.add_edge(event_node, curr_task_usage_node)
-
-            if prev_task_usage_node:
-                G.add_edge(prev_task_usage_node, curr_task_usage_node)
-            else:
-                G.add_edge(job_id, curr_task_usage_node)
-
-            prev_task_usage_node = curr_task_usage_node
-
-            # machine events add
-            machine_csv = str(row["machine_id"])+".csv"
-            if row["machine_id"] not in machine_events_list:
-                continue
-            """if row["machine_id"] not in machine_attrs_list:
-                continue"""
-
-            prev_time = row["start_time"]
-            max_time = row["end_time"]
-
-            machine_events_df = pd.read_csv(os.path.join(machine_events_path, machine_csv))
-            machine_events_df = machine_events_df[machine_events_df["timestamp"] <= max_time]
-            machine_events_df = machine_events_df[machine_events_df["timestamp"] >= prev_time]
-
-            prev_task_events_node = None
-            for temp, event in machine_events_df.iterrows():
-                curr_machine_events_node = f"Machine_events_{row['machine_id']}_{event['timestamp']}"
-
-                if G.has_node(curr_machine_events_node):
-                    G.add_edge(curr_machine_events_node, curr_task_usage_node)
-                    continue
-
-                machine_events_attributes = default_values.copy()
-                machine_events_attributes.update({
-                    "timestamp": event["timestamp"],
-                    "event_type": event["event_type"],
-                    "capacity_cpu": event["capacity_cpu"],
-                    "capacity_memory": event["capacity_memory"]
-                })
-
-                G.add_node(curr_machine_events_node, type="task_events", **task_const_node_attributes)
-
-                if prev_task_events_node:
-                    G.add_edge(prev_task_events_node, curr_machine_events_node)
-                    G.add_edge(curr_machine_events_node, curr_task_usage_node)
-                else:
-                    G.add_edge(job_id, curr_machine_events_node)
-
-                prev_task_events_node = curr_machine_events_node
-
-        #print(f"\n{job_df}\n\n{task_const_df}\n\n{task_events_df}\n\n{task_usage_df}")
-
-        isolated = list(nx.isolates(G))
-        G.remove_nodes_from(isolated)
+        #isolated = list(nx.isolates(G))
+        #G.remove_nodes_from(isolated)
 
         if not nx.is_connected(G):
-            #print("Not connected")
+            print("Not connected")
             G.clear()
         else:
             save_graph(G, job_id)
