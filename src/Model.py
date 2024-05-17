@@ -15,6 +15,7 @@ from Dataloader import GraphDataset
 class MaskedMSELoss(nn.Module):
     def __init__(self):
         super(MaskedMSELoss, self).__init__()
+        self.device = device
 
     def forward(self, input, target):
         mask = target != -1
@@ -22,9 +23,9 @@ class MaskedMSELoss(nn.Module):
         masked_target = target[mask]
         
         if torch.isnan(masked_input).any():
-            return torch.tensor(0.0, requires_grad=True)
+            return torch.tensor(0.0, requires_grad=True, device=self.device)
         elif masked_target.numel() == 0:
-            return torch.tensor(0.0, device=input.device, requires_grad=True)
+            return torch.tensor(0.0, requires_grad=True, device=self.device)
         else:
             return F.mse_loss(masked_input, masked_target)
 
@@ -39,7 +40,7 @@ class GCN(torch.nn.Module):
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
 
-        x = F.normalize(x, p=2, dim=1)
+        #x = F.normalize(x, p=2, dim=1)
 
         x = self.conv1(x, edge_index)
         x = F.relu(x)
@@ -51,13 +52,14 @@ class GCN(torch.nn.Module):
         return x
     
 
-def train_model(model, train_loader, optimizer, loss_fn, epochs=1):
+def train_model(model, train_loader, optimizer, loss_fn, device, epochs=1):
     model.train()
 
     for epoch in tqdm(range(epochs), desc="Epochs"):
         total_loss = 0
 
         for data in tqdm(train_loader, desc="Training"):
+            data = data.to(device)
             optimizer.zero_grad()
             out = model(data)
             loss = loss_fn(out, data.y.float())
@@ -80,8 +82,8 @@ def save_model(model, path='model.pth'):
     print(f"Model saved to {path}")
 
 
-def load_model(model_path, num_features, num_classes):
-    model = GCN(num_features=num_features, num_classes=num_classes)
+def load_model(model_path, num_features, num_classes, device):
+    model = GCN(num_features=num_features, num_classes=num_classes).to(device)
     model.load_state_dict(torch.load(model_path))
     model.eval()
 
@@ -89,11 +91,13 @@ def load_model(model_path, num_features, num_classes):
 
 
 def evaluate_model(model, loader):
-    predictions = []
-    actuals = []
+    mse_accum = 0.0
+    mae_accum = 0.0
+    count = 0
 
     with torch.no_grad():
         for data in tqdm(loader, desc="Eval"):
+            data = data.to(device)
             out = model(data)
 
             valid_mask = data.y != -1
@@ -101,18 +105,22 @@ def evaluate_model(model, loader):
                 valid_pred = out[valid_mask]
                 valid_actual = data.y[valid_mask]
 
-                predictions.append(valid_pred.cpu().numpy())
-                actuals.append(valid_actual.cpu().numpy())
-                #print(predictions)
-                #print(actuals)
-                break
+                mse = F.mse_loss(valid_pred, valid_actual, reduction='sum')
+                mae = F.l1_loss(valid_pred, valid_actual, reduction='sum')
+                
+                mse_accum += mse.item()
+                mae_accum += mae.item()
+                count += valid_mask.sum().item()
 
-    predictions = np.vstack(predictions)
-    actuals = np.vstack(actuals)
+    mse = mse_accum / count
+    mae = mae_accum / count
+    rmse = np.sqrt(mse)
 
-    mse = np.mean((predictions - actuals) ** 2)
     print(f"Mean Squared Error: {mse}")
-    
+    print(f"Mean Absolute Error: {mae}")
+    print(f"Root Mean Squared Error: {rmse}")
+
+    """
     plt.figure(figsize=(15, 5))
     plt.subplot(1, 2, 1)
     plt.plot(predictions[:, 0], label="Predicted Mean CPU Usage Rate")
@@ -127,28 +135,32 @@ def evaluate_model(model, loader):
     plt.legend()
 
     plt.show()
+    """
 
 
 if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+
     # Default: Fasle
-    new_train = False
+    new_train = True
 
     root_dir = "../datas/graphs"
     dataset = GraphDataset(root_dir=root_dir)
     train_dataset, test_dataset = dataset.get_train_test_split()
 
     if new_train:
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
-        model = GCN(num_features=12, num_classes=2)
+        model = GCN(num_features=13, num_classes=2).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
         loss_fn = MaskedMSELoss()
 
-        train_model(model, train_loader, optimizer, loss_fn, epochs=1)
+        train_model(model, train_loader, optimizer, loss_fn, device, epochs=10)
         save_model(model)
 
-    model = load_model('model.pth', num_features=12, num_classes=2)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    model = load_model("model.pth", num_features=13, num_classes=2, device=device)
+    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
     
     evaluate_model(model, test_loader)
 

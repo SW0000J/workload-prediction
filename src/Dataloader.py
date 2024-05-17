@@ -1,3 +1,4 @@
+import hashlib
 import networkx as nx
 import numpy as np
 import os
@@ -7,6 +8,13 @@ import random
 import torch
 from torch_geometric.data import Data, Dataset
 from torch_geometric.utils import from_networkx
+
+
+def hash_string_to_int(s, mod=100000):
+    hash_object = hashlib.sha256(s.encode())
+    hex_dig = hash_object.hexdigest()
+    int_value = int(hex_dig, 16) % mod
+    return int_value
 
 
 class GraphDataset(Dataset):
@@ -76,27 +84,23 @@ class GraphDataset(Dataset):
         with open(filepath, "rb") as f:
             graph = pickle.load(f)
 
+        all_attributes = set(["timestamp", "machine_id", "event_type", "capacity_cpu", 
+                          "capacity_memory", "task_id", "start_time", "end_time", 
+                          "scheduling_class", "priority", "request_cpu", "request_memory", 
+                          "user_name", "mean_cpu_usage_rate", "canonical_memory_usage"])
+
         for node_id, node_data in graph.nodes(data=True):
-            x_values = [
-                node_data["timestamp"],
-                node_data["machine_id"],
-                node_data["event_type"],
-                node_data["capacity_cpu"],
-                node_data["capacity_memory"],
-                node_data["task_id"],
-                node_data["start_time"],
-                node_data["end_time"],
-                #node_data["user_name"],
-                node_data["scheduling_class"],
-                node_data["priority"],
-                node_data["request_cpu"],
-                node_data["request_memory"],
-                #node_data["attribute_name"]
-            ]
-            y_values = [
-                node_data["mean_cpu_usage_rate"],
-                node_data["canonical_memory_usage"]
-            ]
+            node_data['user_name'] = hash_string_to_int(node_data.get('user_name', ''), 100000)
+
+            missing_attrs = all_attributes - set(node_data.keys())
+            for attr in missing_attrs:
+                if attr in ['user_name']:
+                    node_data[attr] = hash_string_to_int('', 100000)
+                else:
+                    node_data[attr] = -1
+
+            x_values = [node_data.get(attr, -1) for attr in sorted(all_attributes) if attr not in ["mean_cpu_usage_rate", "canonical_memory_usage"]]
+            y_values = [node_data.get("mean_cpu_usage_rate", -1), node_data.get("canonical_memory_usage", -1)]
 
             node_data['x'] = torch.tensor(x_values, dtype=torch.float)
             node_data['y'] = torch.tensor(y_values, dtype=torch.float)
